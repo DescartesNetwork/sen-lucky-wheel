@@ -1,14 +1,16 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { BN } from '@project-serum/anchor'
+import { utilsBN } from '@sen-use/web3'
 
 import { Card, Col, Row } from 'antd'
 import WinList from './winList'
+import IconSax from '@sentre/antd-iconsax'
 
 import { useTicketByCampaign } from 'hooks/ticket/useTicketByCampaign'
 import { useSelectedCampaign } from 'hooks/useSelectedCampaign'
 import { useLotteryInfo } from 'hooks/useLotteryInfo'
 import { useMilestoneByCampaign } from 'hooks/challengeReward/useMilestoneByCampaign'
-import IconSax from '@sentre/antd-iconsax'
+import { useRewardByCampaign } from 'hooks/reward/useRewardByCampaign'
 
 export type Winner = {
   authority: string
@@ -22,12 +24,14 @@ const Winners = () => {
   const { getListLotteryData } = useLotteryInfo(selectedCampaign)
   const listLottery = getListLotteryData()
   const { getMilestoneCampaign } = useMilestoneByCampaign(selectedCampaign)
+  const rewards = useRewardByCampaign(selectedCampaign)
 
   const processes = getMilestoneCampaign()
 
   const getAroundedMilestone = useCallback(
     (val: BN) => {
       let result = new BN(0)
+
       for (const milestone of processes) {
         if (!val.gte(milestone)) continue
         result = milestone
@@ -66,6 +70,41 @@ const Winners = () => {
     }
     return data
   }, [tickets])
+
+  const checkReward = useCallback(async () => {
+    const result: Record<string, number> = {}
+    let totalUsdc = 0
+    await Promise.all(
+      Object.keys(tickets).map(async (key) => {
+        const { state, reward, authority } = tickets[key]
+        const rewardData = rewards[reward.toString()]
+        if ((!state.won && !state.claimed) || !rewardData) return
+
+        const mint = rewardData.mint.toBase58()
+        let price = 0
+        let decimals = 9
+        if (mint === 'SENBBKVCM7homnf5RX9zqpf1GFe935hnbU4uVzY1Y6M') {
+          price = 0.003
+        }
+        if (mint === 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v') {
+          price = 1
+          decimals = 6
+        }
+
+        const totalReward =
+          price * Number(utilsBN.undecimalize(rewardData.prizeAmount, decimals))
+        totalUsdc += totalReward
+        if (!result[authority.toBase58()]) result[authority.toBase58()] = 0
+        result[authority.toBase58()] += totalReward
+      }),
+    )
+    console.log('result', result)
+    console.log('totalUsdc', totalUsdc)
+  }, [rewards, tickets])
+
+  useEffect(() => {
+    checkReward()
+  }, [checkReward])
 
   if (!winnersLatestList.length) return null
 
